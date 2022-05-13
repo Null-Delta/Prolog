@@ -1,98 +1,148 @@
 :- ['library', 'combinatorics'].
 
-%-----чтение------
+:- dynamic(vertex/1).
+:- dynamic(edge/1).
+:- dynamic(weights/2).
+:- dynamic(wasFinded/0).
 
-readWayVertexes(V, Vs) :-
+in_list([H|T],V) :-
+    V is H;in_list(T,V).
+
+%-----чтение------
+readWayVertexes(Vs) :-
     getAllWords(Vs, Words),
-    mapList(
-        [Inp, Out]>>(
-            string_to_atom(Inp, InpAtom),
-            atom_number(InpAtom, Out)
-        ),
-        Words,
-        V
-    ),!.
+    saveVertexes(Words).
 
-readWayEdges([],[]).
+saveVertexes([]).
+saveVertexes([H|T]) :-
+    name(Z,H),
+    assertz(vertex(Z)),
+    saveVertexes(T).
 
-readWayEdges(Edges,[H|T]) :-
-    getAllWords(H,Words),
-    mapList(
-        [Inp, Out]>>(
-            string_to_atom(Inp, InpAtom),
-            atom_number(InpAtom, Out)
-        ),
-        Words,
-        [V1,V2,V3]
-    ),
-    readWayEdges(NextEdges,T),
-    Edges ~ [(V1,V2,V3) | NextEdges].
+saveEdge([]).
+saveEdge([H|T]) :-
+    getAllWords(H,[V1,V2,W]),
+    name(NV1,V1),
+    name(NV2,V2),
+    name(NW,W),
+    assertz(edge([NV1,NV2,NW])),
+    assertz(weights([NV1,NV2],0)),
+    saveEdge(T).
 
-readWay((V,E), File) :-
+readWay(File) :-
     readFile(File, [Vertexes|Edges]),
-    readWayVertexes(V,Vertexes),
-    readWayEdges(E,Edges),!.
+    readWayVertexes(Vertexes),
+    saveEdge(Edges).
 
 %-----чтение------
 
-:- op(1,xfy, :).
-:- op(2,xfy, ~~).
-:- op(6,xfy, </~).
-:- op(4,xfy, --).
-:- op(3,xfy, ~>).
+%найти истоки
+get_inputs(Result, Local) :-
+    vertex(X),
+    not(contains(Local,X)),
+    not(edge([_,X,_])),
+    get_inputs(Result, [X|Local]).
+get_inputs(X,X).
+get_inputs(InputsList) :-
+    get_inputs(InputsList,[]),!.
 
-% проверяет существует ли ребро V1-V2 в графе (V,E)
-% <Граф с вершинами V и ребрами E> : <Первая вершина> -- <вторая вершина>
-(_,E) : V1 -- V2 :- E <- (V1,V2,_).
+%найти стоки
+get_outputs(Result, Local) :-
+    vertex(X),
+    not(contains(Local,X)),
+    not(edge([X,_,_])),
+    get_outputs(Result, [X|Local]).
+get_outputs(X,X).
+get_outputs(OutputsList) :-
+    get_outputs(OutputsList,[]),!.
 
-% Находит все возможные простые пути из вершины V1 в вершину V2
-% <Граф с вершинами V и ребрами E> : <Первая вершина> ~~ <вторая вершина> ~> <[путь, состоящий из номеров вершин]>
-(_,_) : V1 ~~ V1 ~> [V1] </~ _.
+%найти путь
+findWay(V1,V2,Way) :- findWay(V1,V2,Way,[V1]).
 
-(V,E) : V1 ~~ V2 ~> Way </~ UsedVertexes :-
-    (V,E) : V1 -- X,
-    UsedVertexes </- X,
-    (V,E): X ~~ V2 ~> NextWay </~ [X|UsedVertexes],
-    Way ~ [V1|NextWay].
+findWay(V1,V2,Way,VisitedVertexes) :-
+    (edge([V1,V2,_]);edge([V2,V1,_])),
+    Way ~ [V1,V2];
+    (edge([V1,X,_]);edge([X,V1,_])),
+    not(X ~ V2),
+    not(contains(VisitedVertexes,X)),
+    findWay(X,V2,SubWay,[X|VisitedVertexes]),
+    Way ~ [V1|SubWay].
 
-(V,E) : V1 ~~ V2 ~> Way :- (V,E) : V1 ~~ V2 ~> Way </~ [V1].
+%можно ли пустить поток по пути
+can_go([_]) :- !.
+can_go([V1,V2|T]) :-
+    (
+        edge([V1,V2,W]),
+        weights([V1,V2], FW),
+        FW < W,
+        can_go([V2|T]);
 
-% проверяет существует ли путь от вершины V1 в вершину V2
-% <Граф с вершинами V и ребрами E> : <Первая вершина> ~~ <вторая вершина>
-(V,E) : V1 ~~ V2 :- (V,E) : V1 ~~ V2 ~> _ </~ [V1].
+        edge([V2,V1,W]),
+        weights([V2,V1], FW),
+        FW < W,
+        can_go([V2|T])
+    ).
 
-lab15task10 :-
-    readWay((V,E),'way.txt'),
-    V2 ~ V,
-    write(E),nl,
-    length(E, N),
-    length(E2, N),!,
-    write(E2). 
+%поиск горла пути
+findThroat([V1,V2],Min) :-
+     (
+        edge([V1,V2,W]), 
+        weights([V1,V2],FW);
+        edge([V2,V1,W]), 
+        weights([V2,V1],FW)
+     ), 
+     Min is W - FW.
 
-fillWays(V,E,E2,Istok,Stok) :-
-    Istok <- I,
-    Stok <- S,
+findThroat([V1,V2|T],Min) :-
+    findThroat([V2|T],NextMin),
+    (
+        edge([V1,V2,W]),
+        weights([V1,V2],FW);
+        edge([V2,V1,W]),
+        weights([V2,V1],FW)
+    ),
+    LW is W - FW,
+    Min is min(LW,NextMin),!.
 
-isPotok([],_,_,_,_).
+make_potok :-
+    assertz(wasFinded),
+    get_inputs(Inputs),
+    get_outputs(Outputs),
+    repeat,
+    (
+        not(wasFinded),!;
+        retract(wasFinded),
+        in_list(Inputs,I),
+        in_list(Outputs,O),        
+        findWay(I,O,Way),
+        can_go(Way),
+        findThroat(Way,Throat),
+        push_potok(Way,Throat),
+        assertz(wasFinded),
+        fail
+    ),
+    print_potok. 
 
-% isPotok(V,E,W,UsedV,Cut, PotokSize) 
+%пуск потока по пути
+push_potok([_],Throat).
+push_potok([V1,V2|T],Throat) :- 
+    (
+        weights([V1,V2],LW),
+        retract(weights([V1,V2],LW)),
+        NewW is LW + Throat,
+        assertz(weights([V1,V2],NewW));
 
-findIstok(V,E, Istok) :-
-    filterList(
-        [Val]>>(
-            not((V,E): _ -- Val)
-        ),
-        V,
-        Istok
-    ),!.
+        weights([V2,V1],LW),
+        retract(weights([V2,V1],LW)),
+        NewW is LW - Throat,
+        assertz(weights([V2,V1],NewW))
+    ),
+    push_potok([V2|T],Throat).
 
+print_potok :-
+    findall([Value,X],weights(Value,X),Weights),
+    write(Weights),nl.
 
-findStok(V,E, Stok) :-
-    filterList(
-        [Val]>>(
-            not((V,E): Val -- _)
-        ),
-        V,
-        Stok
-    ),!.
-
+lab16_task10 :-
+    readWay('way.txt'),
+    make_potok,!.
