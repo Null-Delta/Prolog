@@ -64,6 +64,7 @@ findValues :-
     contains(List,[_,blondin]),
     contains(List,[_,brunet]),
     not(contains(List,[rizov,riziy])),
+    not(contains(List,[belocurov,blondin])),
     not(contains(List,[chernov,brunet])),
     write(List),!.
 
